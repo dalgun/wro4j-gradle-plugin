@@ -9,9 +9,9 @@ import org.gradle.api.file.RelativePath
 import org.gradle.api.plugins.JavaPluginConvention
 import org.gradle.api.tasks.Copy
 import org.gradle.api.tasks.SourceSet
-import ro.isdc.wro4j.extensions.CssUrlUnrootPostProcessor
 
 class Wro4JPlugin implements Plugin<Project> {
+    private Copy prepareAssets
     private Copy processWebResources
     private Copy processWebTestResources
 
@@ -23,10 +23,25 @@ class Wro4JPlugin implements Plugin<Project> {
         }
 
         def webResources = project.extensions.create(WebResourceSet.NAME, WebResourceSet, project)
-        project.configurations.create("webjars")
-        project.configurations.create("webjarsTest")
+        def webjarsRuntime = project.configurations.create("webjarsRuntime")
+        def webjars = project.configurations
+                .create("webjars")
+                .extendsFrom(webjarsRuntime)
+        def webjarsTest = project.configurations.create("webjarsTest")
 
+        /* Only webjarsRuntime will be included in final dependencies */
+        project.configurations
+                .getByName("runtime")
+                .extendsFrom(webjarsRuntime)
+
+        /* webjars and webjarsTest are included in testCompile to allow IDEs (like IntelliJ IDEA) index js/css sources */
+        project.configurations
+                .getByName("testCompile")
+                .extendsFrom(webjars, webjarsTest)
+
+        prepareAssets = project.tasks.create("prepareAssets", Copy)
         processWebResources = project.tasks.create("processWebResources", Copy)
+        processWebResources.dependsOn prepareAssets
         processWebTestResources = project.tasks.create("processWebTestResources", Copy)
 
         project.tasks
@@ -49,13 +64,12 @@ class Wro4JPlugin implements Plugin<Project> {
         def srcTestDir = webResources.srcTestDir
         def buildMainDir = webResources.buildMainDir
         def buildTestDir = webResources.buildTestDir
-        def dstDir = new File(srcMain.output.resourcesDir, webResources.staticFolder)
+        def dstDir = new File(srcMain.output.resourcesDir, webResources.dstStaticFolder)
 
         buildMainDir.mkdirs()
         buildTestDir.mkdirs()
 
         /* Configure processWebResources task */
-        def prepareAssets = project.tasks.create("prepareAssets", Copy)
         prepareAssets.with {
             from srcMainDir
             into buildMainDir
@@ -71,7 +85,6 @@ class Wro4JPlugin implements Plugin<Project> {
             into buildMainDir
         }
         processWebResources.dependsOn prepareWebjars
-        project.configurations.getByName("runtime").extendsFrom(webjars)
 
         webResources.bundles.each { bundle ->
             def compileWeb = project.tasks.create(nameFor("compileWeb", bundle.name), WebCompileTask)
@@ -86,7 +99,7 @@ class Wro4JPlugin implements Plugin<Project> {
         }
 
         processWebResources.with {
-            from new File(buildMainDir, webResources.staticFolder)
+            from new File(buildMainDir, webResources.srcStaticFolder)
             into dstDir
         }
         if (webResources.mainAssets != null) {
